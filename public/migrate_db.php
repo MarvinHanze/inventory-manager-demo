@@ -2,8 +2,8 @@
 header('Content-Type: application/json');
 
 $DB_HOST = getenv('DB_HOST') ?: 'y11ovnrne4yk4p9zbhe39tti';
-$DB_USER = getenv('DB_USER') ?: 'mysql';
-$DB_PASS = getenv('DB_PASS') ?: '23ns613Dyo1vgiAOQCt2ABFZzujOsxuyROvqNk4unUoZxWpwN9nIPrMNTt4QFkzG';
+$DB_USER = 'root';
+$DB_PASS = getenv('DB_ROOT_PASS') ?: 'Q4WzNdQFT4aREwZ6GdlDOLe0pAaRdqP64Sq4zsVDqxshq2aBIJIvuX0kMeGkUYRO';
 
 try {
     $pdo = new PDO("mysql:host=$DB_HOST", $DB_USER, $DB_PASS, [
