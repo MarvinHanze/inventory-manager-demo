@@ -1,0 +1,39 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    container_name: inventory-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: inventory_db
+      DB_USER: inventory_user
+      DB_PASS: inventory_pass
+    volumes:
+      - ./public:/var/www/html
+
+  db:
+    image: mysql:8.0
+    container_name: inventory-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: inventory_db
+      MYSQL_USER: inventory_user
+      MYSQL_PASSWORD: inventory_pass
+    volumes:
+      - ./sql/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db_data:
