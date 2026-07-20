@@ -18,17 +18,31 @@ try {
 
 initDatabase($pdo);
 
-function initDatabase($pdo) {
-    if (isset($_SESSION['db_initialized'])) return;
+define('DEMO_RESET_MINUTES', 30);
 
+function initDatabase($pdo) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL, role ENUM('admin','user') DEFAULT 'user', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS employees (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255), department VARCHAR(100), status ENUM('active','inactive') DEFAULT 'active', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS assets (id INT AUTO_INCREMENT PRIMARY KEY, asset_code VARCHAR(50) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, category VARCHAR(100), status ENUM('available','checked_out','maintenance','retired') DEFAULT 'available', assigned_to INT, last_checkout TIMESTAMP NULL, last_checkin TIMESTAMP NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS asset_transactions (id INT AUTO_INCREMENT PRIMARY KEY, asset_id INT NOT NULL, employee_id INT NOT NULL, type ENUM('checkout','checkin') NOT NULL, checkout_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, checkin_date TIMESTAMP NULL, notes TEXT)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS login_log (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ip_address VARCHAR(45))");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS demo_settings (id INT PRIMARY KEY DEFAULT 1, last_reset DATETIME NOT NULL)");
 
-    $count = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-    if ($count > 0) { $_SESSION['db_initialized'] = true; return; }
+    $row = $pdo->query("SELECT last_reset FROM demo_settings WHERE id=1")->fetch();
+    $needsReset = !$row || (time() - strtotime($row['last_reset'])) >= (DEMO_RESET_MINUTES * 60);
+
+    if ($needsReset) {
+        seedDemoData($pdo);
+        $pdo->exec("INSERT INTO demo_settings (id, last_reset) VALUES (1, NOW()) ON DUPLICATE KEY UPDATE last_reset=NOW()");
+    }
+}
+
+function seedDemoData($pdo) {
+    $pdo->exec("SET FOREIGN_KEY_CHECKS=0");
+    foreach (['asset_transactions','assets','employees','users','login_log'] as $t) {
+        $pdo->exec("TRUNCATE TABLE $t");
+    }
+    $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
 
     $hash = password_hash('demo123', PASSWORD_DEFAULT);
     $s = $pdo->prepare("INSERT INTO users (email, password, name, role) VALUES (?, ?, ?, ?)");
@@ -72,7 +86,6 @@ function initDatabase($pdo) {
     $empIds = $pdo->query("SELECT id FROM employees")->fetchAll(PDO::FETCH_COLUMN);
     $astIds = $pdo->query("SELECT id FROM assets")->fetchAll(PDO::FETCH_COLUMN);
     $t = $pdo->prepare("INSERT INTO asset_transactions (asset_id, employee_id, type, checkout_date, checkin_date, notes) VALUES (?, ?, 'checkout', ?, ?, ?)");
-
     $notes = array('Project uitlening', 'Tijdelijk gebruik', 'Vergadering', 'Thuiswerken', 'Onderhoud');
     for ($i = 0; $i < 30; $i++) {
         $aid = $astIds[array_rand($astIds)];
@@ -83,8 +96,6 @@ function initDatabase($pdo) {
         $in = ($i % 4 !== 0) ? date('Y-m-d H:i:s', strtotime($out . "+{$hrs} hours")) : null;
         $t->execute(array($aid, $eid, $out, $in, $notes[array_rand($notes)]));
     }
-
-    $_SESSION['db_initialized'] = true;
 }
 
 function isLoggedIn() {
