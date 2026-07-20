@@ -2,6 +2,7 @@
 session_start();
 
 define('BASE', '/inventory-manager');
+define('DEMO_RESET_MINUTES', 30);
 
 $DB_HOST = getenv('DB_HOST') ?: 'y11ovnrne4yk4p9zbhe39tti';
 $DB_NAME = getenv('DB_NAME') ?: 'default';
@@ -17,8 +18,6 @@ try {
 }
 
 initDatabase($pdo);
-
-define('DEMO_RESET_MINUTES', 30);
 
 function initDatabase($pdo) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL, role ENUM('admin','user') DEFAULT 'user', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
