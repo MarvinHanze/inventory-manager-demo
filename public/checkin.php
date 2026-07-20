@@ -6,6 +6,7 @@ $user = getUser();
 <!DOCTYPE html>
 <html lang="nl">
 <head>
+    <base href="/inventory-manager/">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Manager - Inname</title>
@@ -35,8 +36,8 @@ $user = getUser();
             <form id="checkinForm">
                 <div class="form-group">
                     <label for="assetCode">Asset Code (scan of voer in)</label>
-                    <input type="text" id="assetCode" name="asset_code" required 
-                           placeholder="bijv. AST-001" autofocus>
+                    <input type="text" id="assetCode" name="scan_input" required 
+                           placeholder="bijv. INV-001" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
                 </div>
                 
                 <div id="result" class="result-message" style="display: none;"></div>

@@ -91,7 +91,7 @@ switch ($action) {
             exit;
         }
         
-        $asset_code = $_POST['asset_code'] ?? '';
+        $asset_code = $_POST['scan_input'] ?? $_POST['asset_code'] ?? '';
         $employee_id = $_POST['employee_id'] ?? 0;
         $notes = $_POST['notes'] ?? '';
         
@@ -132,7 +132,7 @@ switch ($action) {
             exit;
         }
         
-        $asset_code = $_POST['asset_code'] ?? '';
+        $asset_code = $_POST['scan_input'] ?? $_POST['asset_code'] ?? '';
         
         // Find asset
         $stmt = $pdo->prepare("SELECT * FROM assets WHERE asset_code = ?");

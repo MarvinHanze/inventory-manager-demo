@@ -8,6 +8,7 @@ if (isset($_SESSION['user_id'])) {
 <!DOCTYPE html>
 <html lang="nl">
 <head>
+    <base href="/inventory-manager/">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Manager - Login</title>
@@ -23,12 +24,12 @@ if (isset($_SESSION['user_id'])) {
             </div>
             <form id="loginForm" class="login-form">
                 <div class="form-group">
-                    <label for="email">E-mail</label>
-                    <input type="email" id="email" name="email" required value="admin@demo.nl">
+                    <label for="loginEmail">E-mail</label>
+                    <input type="email" id="loginEmail" name="login_email" required value="admin@demo.nl" autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label for="password">Wachtwoord</label>
-                    <input type="password" id="password" name="password" required value="demo123">
+                    <label for="loginPass">Wachtwoord</label>
+                    <input type="password" id="loginPass" name="login_pass" required value="demo123" autocomplete="current-password">
                 </div>
                 <div id="error" class="error-message" style="display: none;"></div>
                 <button type="submit" class="btn btn-primary btn-block">Inloggen</button>
@@ -43,17 +44,19 @@ if (isset($_SESSION['user_id'])) {
             e.preventDefault();
             const errorEl = document.getElementById('error');
             errorEl.style.display = 'none';
-            
-            const formData = new FormData(e.target);
+
+            const formData = new FormData();
             formData.append('action', 'login');
-            
+            formData.append('email', document.getElementById('loginEmail').value);
+            formData.append('password', document.getElementById('loginPass').value);
+
             try {
                 const response = await fetch('api.php?action=login', {
                     method: 'POST',
                     body: formData
                 });
                 const data = await response.json();
-                
+
                 if (data.success) {
                     window.location.href = 'index.php';
                 } else {
@@ -65,7 +68,6 @@ if (isset($_SESSION['user_id'])) {
                 errorEl.style.display = 'block';
             }
         });
-        document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     </script>
 </body>
 </html>
