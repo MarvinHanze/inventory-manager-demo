@@ -11,26 +11,19 @@ try {
     ]);
 
     $pdo->exec("CREATE DATABASE IF NOT EXISTS `demos` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    echo "Created database 'demos'\n";
 
-    $pdo->exec("USE `demo`");
-    $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
-    echo "Found " . count($tables) . " tables in 'demo'\n";
+    $tables = $pdo->query("SHOW TABLES FROM `demo`")->fetchAll(PDO::FETCH_COLUMN);
+    $results = [];
 
     foreach ($tables as $table) {
-        $stmt = $pdo->query("SHOW CREATE TABLE `$table`");
-        $row = $stmt->fetch(PDO::FETCH_NUM);
-        $createStmt = $row[1];
-
-        $pdo->exec("USE `demos`");
-        $pdo->exec("DROP TABLE IF EXISTS `$table`");
-        $pdo->exec($createStmt);
-
+        $pdo->exec("DROP TABLE IF EXISTS `demos`.`$table`");
+        $pdo->exec("CREATE TABLE `demos`.`$table` LIKE `demo`.`$table`");
         $pdo->exec("INSERT INTO `demos`.`$table` SELECT * FROM `demo`.`$table`");
-        echo "Copied: $table\n";
+        $count = $pdo->query("SELECT COUNT(*) FROM `demos`.`$table`")->fetchColumn();
+        $results[] = "$table ($count rows)";
     }
 
-    echo json_encode(['status' => 'ok', 'tables' => count($tables)]);
+    echo json_encode(['status' => 'ok', 'database' => 'demos', 'tables' => $results]);
 
 } catch (PDOException $e) {
     http_response_code(500);
