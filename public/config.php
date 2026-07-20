@@ -1,10 +1,10 @@
 <?php
 session_start();
 
-$DB_HOST = getenv('DB_HOST') ?: 'localhost';
-$DB_NAME = getenv('DB_NAME') ?: 'inventory_db';
-$DB_USER = getenv('DB_USER') ?: 'inventory_user';
-$DB_PASS = getenv('DB_PASS') ?: 'inventory_pass';
+$DB_HOST = getenv('DB_HOST') ?: 'y11ovnrne4yk4p9zbhe39tti';
+$DB_NAME = getenv('DB_NAME') ?: 'default';
+$DB_USER = getenv('DB_USER') ?: 'mysql';
+$DB_PASS = getenv('DB_PASS') ?: '23ns613Dyo1vgiAOQCt2ABFZzujOsxuyROvqNk4unUoZxWpwN9nIPrMNTt4QFkzG';
 
 try {
     $pdo = new PDO("mysql:host=$DB_HOST;dbname=$DB_NAME;charset=utf8mb4", $DB_USER, $DB_PASS);
