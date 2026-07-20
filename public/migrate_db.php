@@ -37,7 +37,11 @@ try {
     }
 
     $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
-    echo json_encode(['status' => 'ok', 'database' => 'demos', 'tables' => $results]);
+
+    $pdo->exec("GRANT ALL PRIVILEGES ON `demos`.* TO 'mysql'@'%'");
+    $pdo->exec("FLUSH PRIVILEGES");
+
+    echo json_encode(['status' => 'ok', 'database' => 'demos', 'tables' => $results, 'grant' => 'mysql@% -> demos']);
 
 } catch (PDOException $e) {
     http_response_code(500);
