@@ -17,8 +17,17 @@ try {
 
     foreach ($tables as $table) {
         $pdo->exec("DROP TABLE IF EXISTS `demos`.`$table`");
-        $pdo->exec("CREATE TABLE `demos`.`$table` LIKE `demo`.`$table`");
-        $pdo->exec("INSERT INTO `demos`.`$table` SELECT * FROM `demo`.`$table`");
+
+        $cols = $pdo->query("SHOW COLUMNS FROM `demo`.`$table`")->fetchAll(PDO::FETCH_ASSOC);
+        $nonGenerated = array_filter($cols, fn($c) => $c['Extra'] !== 'STORED GENERATED');
+        $colNames = array_map(fn($c) => '`' . $c['Field'] . '`', $nonGenerated);
+        $colList = implode(', ', $colNames);
+
+        $create = $pdo->query("SHOW CREATE TABLE `demo`.`$table`")->fetch(PDO::FETCH_NUM);
+        $createSQL = $create[1];
+
+        $pdo->exec($createSQL);
+        $pdo->exec("INSERT INTO `demos`.`$table` ($colList) SELECT $colList FROM `demo`.`$table`");
         $count = $pdo->query("SELECT COUNT(*) FROM `demos`.`$table`")->fetchColumn();
         $results[] = "$table ($count rows)";
     }
