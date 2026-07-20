@@ -5,7 +5,7 @@ define('BASE', '/inventory-manager');
 define('DEMO_RESET_MINUTES', 30);
 
 $DB_HOST = getenv('DB_HOST') ?: 'y11ovnrne4yk4p9zbhe39tti';
-$DB_NAME = getenv('DB_NAME') ?: 'default';
+$DB_NAME .*= getenv('DB_NAME') ?: 'demos';
 $DB_USER = getenv('DB_USER') ?: 'mysql';
 $DB_PASS = getenv('DB_PASS') ?: '23ns613Dyo1vgiAOQCt2ABFZzujOsxuyROvqNk4unUoZxWpwN9nIPrMNTt4QFkzG';
 

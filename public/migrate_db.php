@@ -11,24 +11,27 @@ try {
     ]);
 
     $pdo->exec("CREATE DATABASE IF NOT EXISTS `demos` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $pdo->exec("USE `demo`");
 
-    $tables = $pdo->query("SHOW TABLES FROM `demo`")->fetchAll(PDO::FETCH_COLUMN);
+    $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
     $results = [];
 
     foreach ($tables as $table) {
         $pdo->exec("DROP TABLE IF EXISTS `demos`.`$table`");
 
-        $cols = $pdo->query("SHOW COLUMNS FROM `demo`.`$table`")->fetchAll(PDO::FETCH_ASSOC);
-        $nonGenerated = array_filter($cols, fn($c) => $c['Extra'] !== 'STORED GENERATED');
+        $cols = $pdo->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_ASSOC);
+        $nonGenerated = array_filter($cols, fn($c) => strpos($c['Extra'], 'STORED') === false);
         $colNames = array_map(fn($c) => '`' . $c['Field'] . '`', $nonGenerated);
         $colList = implode(', ', $colNames);
 
-        $create = $pdo->query("SHOW CREATE TABLE `demo`.`$table`")->fetch(PDO::FETCH_NUM);
+        $create = $pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_NUM);
         $createSQL = $create[1];
 
+        $pdo->exec("USE `demos`");
         $pdo->exec($createSQL);
-        $pdo->exec("INSERT INTO `demos`.`$table` ($colList) SELECT $colList FROM `demo`.`$table`");
-        $count = $pdo->query("SELECT COUNT(*) FROM `demos`.`$table`")->fetchColumn();
+        $pdo->exec("INSERT INTO `$table` ($colList) SELECT $colList FROM `demo`.`$table`");
+        $count = $pdo->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
+        $pdo->exec("USE `demo`");
         $results[] = "$table ($count rows)";
     }
 
