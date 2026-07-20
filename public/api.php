@@ -245,6 +245,83 @@ switch ($action) {
         ]);
         break;
         
+    case 'seed':
+        requireLogin();
+        if ($_SESSION['user_role'] !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['error' => 'Admin only']);
+            exit;
+        }
+        
+        $employees = [
+            ['Sophie de Boer', 'sophie@demo.nl', 'Operations'],
+            ['Thomas Visser', 'thomas@demo.nl', 'Logistics'],
+            ['Emma Bakker', 'emma@demo.nl', 'Warehouse'],
+            ['Daan Mulder', 'daan@demo.nl', 'IT'],
+            ['Lisa Jansen', 'lisa@demo.nl', 'HR'],
+            ['Max Smit', 'max@demo.nl', 'Finance'],
+            ['Fleur Dijkstra', 'fleur@demo.nl', 'Marketing'],
+            ['Ruben de Groot', 'ruben@demo.nl', 'Operations'],
+            ['Nina Schouten', 'nina@demo.nl', 'Logistics'],
+            ['Bas Kok', 'bas@demo.nl', 'Warehouse'],
+        ];
+        
+        $stmt = $pdo->prepare("INSERT IGNORE INTO employees (name, email, department) VALUES (?, ?, ?)");
+        foreach ($employees as $emp) {
+            $stmt->execute($emp);
+        }
+        
+        $assets = [
+            ['INV-001', 'Dell XPS 15 Laptop', 'Laptops', 'available'],
+            ['INV-002', 'MacBook Pro 14"', 'Laptops', 'available'],
+            ['INV-003', 'ThinkPad X1 Carbon', 'Laptops', 'checked_out'],
+            ['INV-004', 'Samsung 27" Monitor', 'Monitors', 'available'],
+            ['INV-005', 'LG UltraWide 34"', 'Monitors', 'available'],
+            ['INV-006', 'HP LaserJet Pro', 'Printers', 'maintenance'],
+            ['INV-007', 'Brother MFC Printer', 'Printers', 'available'],
+            ['INV-008', 'Logitech MX Keys', 'Accessories', 'available'],
+            ['INV-009', 'Logitech MX Master 3', 'Accessories', 'available'],
+            ['INV-010', 'Jabra Evolve2 75', 'Headsets', 'available'],
+            ['INV-011', 'Sony WH-1000XM5', 'Headsets', 'checked_out'],
+            ['INV-012', 'Elgato Stream Deck', 'Accessories', 'available'],
+            ['INV-013', 'Dell Docking Station', 'Accessories', 'available'],
+            ['INV-014', 'iPad Pro 12.9"', 'Tablets', 'available'],
+            ['INV-015', 'Logitech Brio Webcam', 'Accessories', 'checked_out'],
+            ['INV-016', 'Keychron K2 Keyboard', 'Accessories', 'available'],
+            ['INV-017', 'BenQ ScreenBar Monitor Light', 'Accessories', 'available'],
+            ['INV-018', 'Samsung T7 SSD 1TB', 'Storage', 'available'],
+            ['INV-019', 'APC UPS 1500VA', 'Power', 'available'],
+            ['INV-020', 'Cisco Webex Room Kit', 'Meeting', 'available'],
+        ];
+        
+        $stmt = $pdo->prepare("INSERT IGNORE INTO assets (asset_code, name, category, status) VALUES (?, ?, ?, ?)");
+        foreach ($assets as $a) {
+            $stmt->execute($a);
+        }
+        
+        $empStmt = $pdo->query("SELECT id FROM employees ORDER BY RAND() LIMIT 10");
+        $empIds = $empStmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        $assetStmt = $pdo->query("SELECT id FROM assets ORDER BY RAND() LIMIT 15");
+        $assetIds = $assetStmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        $pdo->exec("DELETE FROM asset_transactions");
+        $transStmt = $pdo->prepare("INSERT INTO asset_transactions (asset_id, employee_id, type, checkout_date, checkin_date, notes) VALUES (?, ?, ?, ?, ?, ?)");
+        
+        for ($i = 0; $i < 25; $i++) {
+            $assetId = $assetIds[array_rand($assetIds)];
+            $empId = $empIds[array_rand($empIds)];
+            $daysAgo = rand(1, 30);
+            $hoursOut = rand(1, 48);
+            $checkoutDate = date('Y-m-d H:i:s', strtotime("-{$daysAgo} days"));
+            $checkinDate = ($i % 3 !== 0) ? date('Y-m-d H:i:s', strtotime($checkoutDate . "+{$hoursOut} hours")) : null;
+            $notes = ['Gebruikt voor project', 'Tijdelijk geleend', 'Vergadering', 'Thuiswerken', ''][array_rand([0,1,2,3,4])];
+            $transStmt->execute([$assetId, $empId, 'checkout', $checkoutDate, $checkinDate, $notes]);
+        }
+        
+        echo json_encode(['success' => true, 'message' => 'Test data toegevoegd: 10 medewerkers, 20 assets, 25 transacties']);
+        break;
+        
     default:
         http_response_code(400);
         echo json_encode(['error' => 'Invalid action']);

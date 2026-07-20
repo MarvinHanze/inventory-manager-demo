@@ -24,11 +24,11 @@ if (isset($_SESSION['user_id'])) {
             <form id="loginForm" class="login-form">
                 <div class="form-group">
                     <label for="email">E-mail</label>
-                    <input type="email" id="email" name="email" required placeholder="admin@demo.nl">
+                    <input type="email" id="email" name="email" required value="admin@demo.nl">
                 </div>
                 <div class="form-group">
                     <label for="password">Wachtwoord</label>
-                    <input type="password" id="password" name="password" required placeholder="demo123">
+                    <input type="password" id="password" name="password" required value="demo123">
                 </div>
                 <div id="error" class="error-message" style="display: none;"></div>
                 <button type="submit" class="btn btn-primary btn-block">Inloggen</button>
@@ -65,6 +65,7 @@ if (isset($_SESSION['user_id'])) {
                 errorEl.style.display = 'block';
             }
         });
+        document.getElementById('loginForm').dispatchEvent(new Event('submit'));
     </script>
 </body>
 </html>
