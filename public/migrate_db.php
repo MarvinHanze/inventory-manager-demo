@@ -10,6 +10,7 @@ try {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
     ]);
 
+    $pdo->exec("SET FOREIGN_KEY_CHECKS=0");
     $pdo->exec("CREATE DATABASE IF NOT EXISTS `demos` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("USE `demo`");
 
@@ -35,6 +36,7 @@ try {
         $results[] = "$table ($count rows)";
     }
 
+    $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
     echo json_encode(['status' => 'ok', 'database' => 'demos', 'tables' => $results]);
 
 } catch (PDOException $e) {
