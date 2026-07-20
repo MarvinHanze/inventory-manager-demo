@@ -1,7 +1,7 @@
 <?php
 session_start();
 if (isset($_SESSION['user_id'])) {
-    header('Location: index.php');
+    header('Location: /inventory-manager/index.php');
     exit;
 }
 ?>
@@ -58,7 +58,7 @@ if (isset($_SESSION['user_id'])) {
                 const data = await response.json();
 
                 if (data.success) {
-                    window.location.href = 'index.php';
+                    window.location.href = '/inventory-manager/index.php';
                 } else {
                     errorEl.textContent = data.error || 'Inloggen mislukt';
                     errorEl.style.display = 'block';

@@ -3,7 +3,7 @@ require_once 'config.php';
 requireLogin();
 $user = getUser();
 if ($user['role'] !== 'admin') {
-    header('Location: index.php');
+    header('Location: ' . BASE . '/index.php');
     exit;
 }
 ?>

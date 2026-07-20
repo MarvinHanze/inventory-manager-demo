@@ -1,6 +1,8 @@
 <?php
 session_start();
 
+define('BASE', '/inventory-manager');
+
 $DB_HOST = getenv('DB_HOST') ?: 'y11ovnrne4yk4p9zbhe39tti';
 $DB_NAME = getenv('DB_NAME') ?: 'default';
 $DB_USER = getenv('DB_USER') ?: 'mysql';
@@ -91,7 +93,7 @@ function isLoggedIn() {
 
 function requireLogin() {
     if (!isLoggedIn()) {
-        header('Location: login.php');
+        header('Location: ' . BASE . '/login.php');
         exit;
     }
 }
