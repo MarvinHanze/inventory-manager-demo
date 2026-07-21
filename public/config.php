@@ -1,4 +1,14 @@
 <?php
+// Sessies goed beveiligen: httponly + samesite altijd, secure wanneer via HTTPS/proxy bediend.
+// (Zie ook login.php dat dezelfde instellingen zet vóór zijn eigen session_start().)
+ini_set('session.cookie_httponly', '1');
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.use_strict_mode', '1');
+$__https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+if ($__https) {
+    ini_set('session.cookie_secure', '1');
+}
 session_start();
 
 define('BASE', '/inventory-manager');
@@ -27,6 +37,25 @@ function initDatabase($pdo) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS login_log (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ip_address VARCHAR(45))");
     $pdo->exec("CREATE TABLE IF NOT EXISTS demo_settings (id INT PRIMARY KEY DEFAULT 1, last_reset DATETIME NOT NULL)");
 
+    // Rollen uitbreiden met 'manager' als middenweg tussen admin en user (idempotent: alleen ALTER
+    // uitvoeren als de enum 'manager' nog niet bevat, zodat dit niet elke request een table rewrite triggert).
+    $roleCol = $pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
+    if ($roleCol && strpos($roleCol['Type'], 'manager') === false) {
+        $pdo->exec("ALTER TABLE users MODIFY COLUMN role ENUM('admin','manager','user') DEFAULT 'user'");
+    }
+
+    // Nieuwe tabellen (prefix inv_ om botsing met andere demo-apps in de gedeelde database te voorkomen).
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_warehouses (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, location VARCHAR(255), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_stock (id INT AUTO_INCREMENT PRIMARY KEY, asset_id INT NOT NULL, warehouse_id INT NOT NULL, quantity INT NOT NULL DEFAULT 0, min_stock INT NOT NULL DEFAULT 0, unit_price DECIMAL(10,2) NOT NULL DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uniq_asset_warehouse (asset_id, warehouse_id))");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_batches (id INT AUTO_INCREMENT PRIMARY KEY, asset_id INT NOT NULL, batch_number VARCHAR(100), serial_number VARCHAR(100), quantity INT NOT NULL DEFAULT 1, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, expiry_date DATE NULL)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_stock_allocations (id INT AUTO_INCREMENT PRIMARY KEY, asset_id INT NOT NULL, warehouse_id INT NOT NULL, quantity INT NOT NULL, purpose VARCHAR(255), allocated_by INT NULL, allocated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, released_at TIMESTAMP NULL)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_purchase_orders (id INT AUTO_INCREMENT PRIMARY KEY, po_number VARCHAR(50) NOT NULL UNIQUE, supplier_name VARCHAR(255) NOT NULL, status ENUM('draft','pending','ordered','received','cancelled') DEFAULT 'pending', recurring ENUM('none','weekly','monthly') DEFAULT 'none', created_by INT NULL, expected_date DATE NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_purchase_order_items (id INT AUTO_INCREMENT PRIMARY KEY, po_id INT NOT NULL, asset_id INT NOT NULL, quantity INT NOT NULL, unit_price DECIMAL(10,2) DEFAULT 0)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_sales_orders (id INT AUTO_INCREMENT PRIMARY KEY, so_number VARCHAR(50) NOT NULL UNIQUE, customer_name VARCHAR(255) NOT NULL, status ENUM('open','fulfilled','cancelled') DEFAULT 'open', created_by INT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_sales_order_items (id INT AUTO_INCREMENT PRIMARY KEY, so_id INT NOT NULL, asset_id INT NOT NULL, quantity INT NOT NULL)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_audit_log (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NULL, user_name VARCHAR(255), action VARCHAR(100) NOT NULL, entity_type VARCHAR(50), entity_id INT NULL, details TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_erp_settings (id INT PRIMARY KEY DEFAULT 1, provider VARCHAR(100) DEFAULT 'Exact Online (demo)', api_key VARCHAR(255) DEFAULT '', last_sync_at DATETIME NULL, last_sync_log TEXT)");
+
     $row = $pdo->query("SELECT last_reset FROM demo_settings WHERE id=1")->fetch();
     $needsReset = !$row || (time() - strtotime($row['last_reset'])) >= (DEMO_RESET_MINUTES * 60);
 
@@ -38,7 +67,11 @@ function initDatabase($pdo) {
 
 function seedDemoData($pdo) {
     $pdo->exec("SET FOREIGN_KEY_CHECKS=0");
-    foreach (['asset_transactions','assets','employees','users','login_log'] as $t) {
+    foreach (['asset_transactions','assets','employees','users','login_log',
+              'inv_stock','inv_batches','inv_stock_allocations',
+              'inv_purchase_order_items','inv_purchase_orders',
+              'inv_sales_order_items','inv_sales_orders',
+              'inv_audit_log','inv_warehouses'] as $t) {
         $pdo->exec("TRUNCATE TABLE $t");
     }
     $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
@@ -46,6 +79,7 @@ function seedDemoData($pdo) {
     $hash = password_hash('demo123', PASSWORD_DEFAULT);
     $s = $pdo->prepare("INSERT INTO users (email, password, name, role) VALUES (?, ?, ?, ?)");
     $s->execute(array('admin@demo.nl', $hash, 'Admin', 'admin'));
+    $s->execute(array('manager@demo.nl', $hash, 'Manager', 'manager'));
     $s->execute(array('user@demo.nl', $hash, 'Gebruiker', 'user'));
 
     $e = $pdo->prepare("INSERT INTO employees (name, email, department) VALUES (?, ?, ?)");
@@ -95,6 +129,78 @@ function seedDemoData($pdo) {
         $in = ($i % 4 !== 0) ? date('Y-m-d H:i:s', strtotime($out . "+{$hrs} hours")) : null;
         $t->execute(array($aid, $eid, $out, $in, $notes[array_rand($notes)]));
     }
+
+    // --- Nieuw: magazijnen, voorraadniveaus, batches, orders, audit log, ERP mock-instellingen ---
+    $w = $pdo->prepare("INSERT INTO inv_warehouses (code, name, location) VALUES (?, ?, ?)");
+    $w->execute(array('WH-AMS', 'Hoofdmagazijn Amsterdam', 'Amsterdam'));
+    $w->execute(array('WH-RTM', 'Distributiecentrum Rotterdam', 'Rotterdam'));
+    $warehouseIds = $pdo->query("SELECT id FROM inv_warehouses ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+
+    $prices = array(
+        'Laptops' => 900, 'Monitors' => 250, 'Printers' => 300, 'Accessories' => 60,
+        'Headsets' => 150, 'Tablets' => 700, 'Storage' => 90, 'Power' => 120, 'Meeting' => 1500
+    );
+    $assetRows = $pdo->query("SELECT id, category FROM assets ORDER BY id")->fetchAll();
+    $stock = $pdo->prepare("INSERT INTO inv_stock (asset_id, warehouse_id, quantity, min_stock, unit_price) VALUES (?, ?, ?, ?, ?)");
+    foreach ($assetRows as $idx => $row) {
+        $unitPrice = $prices[$row['category']] ?? 100;
+        // Hoofdmagazijn krijgt altijd voorraad; om de 3 items ook een (kleinere) voorraad in Rotterdam.
+        $qtyMain = rand(2, 25);
+        $minStock = rand(3, 8);
+        // Elk vijfde item bewust (net) onder het minimum zetten zodat de lage-voorraad-melding iets laat zien.
+        if ($idx % 5 === 0) {
+            $qtyMain = max(0, $minStock - rand(1, 3));
+        }
+        $stock->execute(array($row['id'], $warehouseIds[0], $qtyMain, $minStock, $unitPrice));
+        if ($idx % 3 === 0) {
+            $stock->execute(array($row['id'], $warehouseIds[1], rand(1, 10), rand(2, 5), $unitPrice));
+        }
+    }
+
+    $batch = $pdo->prepare("INSERT INTO inv_batches (asset_id, batch_number, serial_number, quantity, expiry_date) VALUES (?, ?, ?, ?, ?)");
+    foreach (array_slice($astIds, 0, 6) as $i => $aid) {
+        $batch->execute(array(
+            $aid,
+            'BATCH-' . str_pad((string)($i + 1), 4, '0', STR_PAD_LEFT),
+            'SN-' . strtoupper(bin2hex(random_bytes(4))),
+            rand(1, 15),
+            $i % 2 === 0 ? date('Y-m-d', strtotime('+' . rand(60, 400) . ' days')) : null
+        ));
+    }
+
+    $po = $pdo->prepare("INSERT INTO inv_purchase_orders (po_number, supplier_name, status, recurring, expected_date) VALUES (?, ?, ?, ?, ?)");
+    $po->execute(array('PO-2026-001', 'Tech Distributie B.V.', 'received', 'none', date('Y-m-d', strtotime('-5 days'))));
+    $po->execute(array('PO-2026-002', 'OfficeSupplies Direct', 'pending', 'monthly', date('Y-m-d', strtotime('+7 days'))));
+    $po->execute(array('PO-2026-003', 'Tech Distributie B.V.', 'ordered', 'none', date('Y-m-d', strtotime('+3 days'))));
+    $poIds = $pdo->query("SELECT id FROM inv_purchase_orders ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+    $poItem = $pdo->prepare("INSERT INTO inv_purchase_order_items (po_id, asset_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
+    foreach ($poIds as $i => $poId) {
+        for ($j = 0; $j < 2; $j++) {
+            $aid = $astIds[array_rand($astIds)];
+            $poItem->execute(array($poId, $aid, rand(5, 20), rand(50, 500)));
+        }
+    }
+
+    $so = $pdo->prepare("INSERT INTO inv_sales_orders (so_number, customer_name, status) VALUES (?, ?, ?)");
+    $so->execute(array('SO-2026-001', 'Contoso Nederland B.V.', 'open'));
+    $so->execute(array('SO-2026-002', 'Noordzee Retail', 'fulfilled'));
+    $soIds = $pdo->query("SELECT id FROM inv_sales_orders ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+    $soItem = $pdo->prepare("INSERT INTO inv_sales_order_items (so_id, asset_id, quantity) VALUES (?, ?, ?)");
+    foreach ($soIds as $soId) {
+        for ($j = 0; $j < 2; $j++) {
+            $aid = $astIds[array_rand($astIds)];
+            $soItem->execute(array($soId, $aid, rand(1, 5)));
+        }
+    }
+
+    $allocation = $pdo->prepare("INSERT INTO inv_stock_allocations (asset_id, warehouse_id, quantity, purpose) VALUES (?, ?, ?, ?)");
+    $allocation->execute(array($astIds[0], $warehouseIds[0], 3, 'Productieorder #PR-4471'));
+    $allocation->execute(array($astIds[2], $warehouseIds[0], 5, 'Assemblagelijn B'));
+
+    $audit = $pdo->prepare("INSERT INTO inv_audit_log (user_id, user_name, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)");
+    $audit->execute(array(null, 'Systeem', 'seed', 'system', null, 'Demo-data automatisch opnieuw ingeladen'));
+
+    $pdo->exec("INSERT INTO inv_erp_settings (id, provider, api_key, last_sync_at, last_sync_log) VALUES (1, 'Exact Online (demo)', '', NULL, NULL) ON DUPLICATE KEY UPDATE provider=VALUES(provider)");
 }
 
 function generateCSRFToken() {
@@ -134,4 +240,43 @@ function getUser() {
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
     $stmt->execute(array($_SESSION['user_id']));
     return $stmt->fetch();
+}
+
+// Rollen & rechten: admin/manager mogen voorraadaanpassingen doen (assets beheren, voorraad
+// bijwerken, orders ontvangen/aanmaken, allocaties, CSV-import, ERP-instellingen). 'user' mag
+// wel gewoon dagelijkse uitgifte/inname doen (dat is geen "voorraadaanpassing" in de zin van
+// aantallen/prijzen/inkoop wijzigen).
+function canManageStock() {
+    return in_array($_SESSION['user_role'] ?? '', ['admin', 'manager'], true);
+}
+
+function isAdmin() {
+    return ($_SESSION['user_role'] ?? '') === 'admin';
+}
+
+function requireRole($roles) {
+    requireLogin();
+    if (!in_array($_SESSION['user_role'] ?? '', (array)$roles, true)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Onvoldoende rechten voor deze actie']);
+        exit;
+    }
+}
+
+function requireStockManager() {
+    requireRole(['admin', 'manager']);
+}
+
+// Audit logging: wie, wat, wanneer (traceerbaarheid/integriteit).
+function logAudit($pdo, $action, $entityType = null, $entityId = null, $details = '') {
+    $userId = $_SESSION['user_id'] ?? null;
+    $userName = 'Systeem';
+    if ($userId) {
+        $stmt = $pdo->prepare("SELECT name FROM users WHERE id = ?");
+        $stmt->execute(array($userId));
+        $row = $stmt->fetch();
+        if ($row) $userName = $row['name'];
+    }
+    $stmt = $pdo->prepare("INSERT INTO inv_audit_log (user_id, user_name, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute(array($userId, $userName, $action, $entityType, $entityId, $details));
 }
