@@ -869,7 +869,7 @@ switch ($action) {
         $provider = $settings['provider'] ?? 'Exact Online (demo)';
 
         if (empty($settings['api_key'])) {
-            $log = "✗ Synchronisatie geweigerd: geen API-sleutel ingesteld voor $provider (demo).";
+            $log = "[FOUT] Synchronisatie geweigerd: geen API-sleutel ingesteld voor $provider (demo).";
             echo json_encode(['success' => false, 'log' => $log]);
             break;
         }
@@ -879,12 +879,12 @@ switch ($action) {
         $poCount = (int)$pdo->query("SELECT COUNT(*) FROM inv_purchase_orders WHERE status = 'received'")->fetchColumn();
 
         $lines = [
-            "→ Verbinding maken met $provider (demo)...",
-            "✓ Authenticatie geslaagd met opgeslagen (nep-)API-sleutel.",
-            "✓ $assetCount artikelen gesynchroniseerd naar $provider (demo).",
-            "✓ $stockCount voorraadregels bijgewerkt.",
-            "✓ $poCount ontvangen inkooporders doorgeboekt naar de boekhouding (demo).",
-            "✓ Synchronisatie voltooid op " . date('d-m-Y H:i:s') . "."
+            "-> Verbinding maken met $provider (demo)...",
+            "[OK] Authenticatie geslaagd met opgeslagen (nep-)API-sleutel.",
+            "[OK] $assetCount artikelen gesynchroniseerd naar $provider (demo).",
+            "[OK] $stockCount voorraadregels bijgewerkt.",
+            "[OK] $poCount ontvangen inkooporders doorgeboekt naar de boekhouding (demo).",
+            "[OK] Synchronisatie voltooid op " . date('d-m-Y H:i:s') . "."
         ];
         $log = implode("\n", $lines);
 

@@ -39,11 +39,11 @@ if (!canManageStock()) {
         </div>
     </nav>
     <div class="hz-bottomnav">
-        <a href="index.php" class="hz-bottomnav__item">📊<span>Dashboard</span></a>
-        <a href="checkout.php" class="hz-bottomnav__item">📤<span>Uitgifte</span></a>
-        <a href="checkin.php" class="hz-bottomnav__item">📥<span>Inname</span></a>
-        <a href="orders.php" class="hz-bottomnav__item">📦<span>Orders</span></a>
-        <a href="admin.php" class="hz-bottomnav__item hz-is-active">⚙️<span>Beheer</span></a>
+        <a href="index.php" class="hz-bottomnav__item"><?= hz_icon('bar-chart') ?><span>Dashboard</span></a>
+        <a href="checkout.php" class="hz-bottomnav__item"><?= hz_icon('upload') ?><span>Uitgifte</span></a>
+        <a href="checkin.php" class="hz-bottomnav__item"><?= hz_icon('download') ?><span>Inname</span></a>
+        <a href="orders.php" class="hz-bottomnav__item"><?= hz_icon('box') ?><span>Orders</span></a>
+        <a href="admin.php" class="hz-bottomnav__item hz-is-active"><?= hz_icon('settings') ?><span>Beheer</span></a>
     </div>
 
     <main class="container">
@@ -64,8 +64,8 @@ if (!canManageStock()) {
             <div class="section-header">
                 <h2>Assets</h2>
                 <div class="hz-flex-wrap">
-                    <a href="api.php?action=export_assets_csv" class="hz-btn hz-btn--secondary">⬇ Exporteer CSV</a>
-                    <button class="hz-btn hz-btn--secondary" onclick="document.getElementById('csvFile').click()">⬆ Importeer CSV</button>
+                    <a href="api.php?action=export_assets_csv" class="hz-btn hz-btn--secondary"><?= hz_icon('download') ?> Exporteer CSV</a>
+                    <button class="hz-btn hz-btn--secondary" onclick="document.getElementById('csvFile').click()"><?= hz_icon('upload') ?> Importeer CSV</button>
                     <input type="file" id="csvFile" accept=".csv" style="display:none;">
                     <button class="btn btn-primary" onclick="showAssetForm()">+ Nieuw asset</button>
                 </div>
@@ -105,7 +105,7 @@ if (!canManageStock()) {
                     <option value="25">25 per pagina</option>
                     <option value="50">50 per pagina</option>
                 </select>
-                <button class="hz-btn hz-btn--danger" id="bulkMaintenanceBtn" style="display:none;">🔧 Bulk: markeer als in onderhoud</button>
+                <button class="hz-btn hz-btn--danger" id="bulkMaintenanceBtn" style="display:none;"><?= hz_icon('tool') ?> Bulk: markeer als in onderhoud</button>
             </div>
 
             <div class="table-container">
@@ -410,9 +410,9 @@ if (!canManageStock()) {
             const pages = data.pages || 1;
             const pag = document.getElementById('assetsPagination');
             pag.innerHTML = `
-                <button ${assetPage <= 1 ? 'disabled' : ''} id="prevPage">← Vorige</button>
+                <button ${assetPage <= 1 ? 'disabled' : ''} id="prevPage"><?= hz_icon('arrow-left') ?> Vorige</button>
                 <span style="padding:0 .5rem; font-size:.85rem; color:var(--hz-text-muted);">Pagina ${data.page} van ${pages} (${data.total} assets)</span>
-                <button ${assetPage >= pages ? 'disabled' : ''} id="nextPage">Volgende →</button>
+                <button ${assetPage >= pages ? 'disabled' : ''} id="nextPage">Volgende <?= hz_icon('arrow-right') ?></button>
             `;
             document.getElementById('prevPage')?.addEventListener('click', () => { assetPage--; loadAssets(); });
             document.getElementById('nextPage')?.addEventListener('click', () => { assetPage++; loadAssets(); });
@@ -454,7 +454,7 @@ if (!canManageStock()) {
             const selected = document.querySelectorAll('.asset-select:checked').length;
             const btn = document.getElementById('bulkMaintenanceBtn');
             btn.style.display = selected > 0 ? 'inline-flex' : 'none';
-            btn.textContent = `🔧 Bulk: markeer ${selected} asset(s) als in onderhoud`;
+            btn.innerHTML = `<?= hz_icon('tool') ?> Bulk: markeer ${selected} asset(s) als in onderhoud`;
         }
         document.getElementById('bulkMaintenanceBtn').addEventListener('click', async () => {
             const ids = Array.from(document.querySelectorAll('.asset-select:checked')).map(cb => cb.value);

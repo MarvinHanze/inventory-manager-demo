@@ -35,11 +35,11 @@ $user = getUser();
         </div>
     </nav>
     <div class="hz-bottomnav">
-        <a href="index.php" class="hz-bottomnav__item">📊<span>Dashboard</span></a>
-        <a href="checkout.php" class="hz-bottomnav__item">📤<span>Uitgifte</span></a>
-        <a href="checkin.php" class="hz-bottomnav__item hz-is-active">📥<span>Inname</span></a>
-        <a href="orders.php" class="hz-bottomnav__item">📦<span>Orders</span></a>
-        <a href="admin.php" class="hz-bottomnav__item">⚙️<span>Beheer</span></a>
+        <a href="index.php" class="hz-bottomnav__item"><?= hz_icon('bar-chart') ?><span>Dashboard</span></a>
+        <a href="checkout.php" class="hz-bottomnav__item"><?= hz_icon('upload') ?><span>Uitgifte</span></a>
+        <a href="checkin.php" class="hz-bottomnav__item hz-is-active"><?= hz_icon('download') ?><span>Inname</span></a>
+        <a href="orders.php" class="hz-bottomnav__item"><?= hz_icon('box') ?><span>Orders</span></a>
+        <a href="admin.php" class="hz-bottomnav__item"><?= hz_icon('settings') ?><span>Beheer</span></a>
     </div>
 
     <main class="container">
@@ -54,7 +54,7 @@ $user = getUser();
                     <div style="display:flex; gap:.5rem;">
                         <input type="text" id="assetCode" name="scan_input" required
                                placeholder="bijv. INV-001" autocomplete="off" data-lpignore="true" data-1p-ignore="true" style="flex:1;">
-                        <button type="button" class="hz-btn hz-btn--secondary" id="openScanner">📷 Scan barcode/QR</button>
+                        <button type="button" class="hz-btn hz-btn--secondary" id="openScanner"><?= hz_icon('camera') ?> Scan barcode/QR</button>
                     </div>
                 </div>
 
@@ -89,7 +89,7 @@ $user = getUser();
         <div class="hz-modal">
             <div class="hz-modal__header">
                 <h3>Scan barcode of QR-code</h3>
-                <button type="button" class="hz-icon-btn" data-hz-modal-close aria-label="Sluiten">✕</button>
+                <button type="button" class="hz-icon-btn" data-hz-modal-close aria-label="Sluiten"><?= hz_icon('x') ?></button>
             </div>
             <div id="qr-reader" style="width:100%;"></div>
             <p style="color:var(--hz-text-muted); font-size:.85rem; margin-top:.5rem;">Geef de browser toegang tot de camera. Werkt het scannen niet (geen camera/HTTPS)? Voer de code dan handmatig in.</p>

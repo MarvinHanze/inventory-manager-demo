@@ -36,11 +36,11 @@ $user = getUser();
         </div>
     </nav>
     <div class="hz-bottomnav">
-        <a href="index.php" class="hz-bottomnav__item hz-is-active">📊<span>Dashboard</span></a>
-        <a href="checkout.php" class="hz-bottomnav__item">📤<span>Uitgifte</span></a>
-        <a href="checkin.php" class="hz-bottomnav__item">📥<span>Inname</span></a>
-        <a href="orders.php" class="hz-bottomnav__item">📦<span>Orders</span></a>
-        <a href="admin.php" class="hz-bottomnav__item">⚙️<span>Beheer</span></a>
+        <a href="index.php" class="hz-bottomnav__item hz-is-active"><?= hz_icon('bar-chart') ?><span>Dashboard</span></a>
+        <a href="checkout.php" class="hz-bottomnav__item"><?= hz_icon('upload') ?><span>Uitgifte</span></a>
+        <a href="checkin.php" class="hz-bottomnav__item"><?= hz_icon('download') ?><span>Inname</span></a>
+        <a href="orders.php" class="hz-bottomnav__item"><?= hz_icon('box') ?><span>Orders</span></a>
+        <a href="admin.php" class="hz-bottomnav__item"><?= hz_icon('settings') ?><span>Beheer</span></a>
     </div>
 
     <main class="container">
@@ -48,10 +48,10 @@ $user = getUser();
 
         <!-- Prominente veelgebruikte acties (i.p.v. alleen iconen: duidelijke labels) -->
         <div class="hz-flex-wrap" style="margin-bottom: 1.5rem;">
-            <a href="admin.php" class="hz-btn hz-btn--primary">📦 Voorraad aanpassen</a>
-            <a href="orders.php#receive" class="hz-btn hz-btn--secondary">🚚 Levering ontvangen</a>
-            <a href="checkout.php" class="hz-btn hz-btn--outline">➡ Asset uitgeven</a>
-            <a href="checkin.php" class="hz-btn hz-btn--outline">⬅ Asset innemen</a>
+            <a href="admin.php" class="hz-btn hz-btn--primary"><?= hz_icon('box') ?> Voorraad aanpassen</a>
+            <a href="orders.php#receive" class="hz-btn hz-btn--secondary"><?= hz_icon('truck') ?> Levering ontvangen</a>
+            <a href="checkout.php" class="hz-btn hz-btn--outline"><?= hz_icon('arrow-right') ?> Asset uitgeven</a>
+            <a href="checkin.php" class="hz-btn hz-btn--outline"><?= hz_icon('arrow-left') ?> Asset innemen</a>
         </div>
 
         <div class="hz-grid hz-grid--3" style="margin-bottom: 1.5rem;">
@@ -87,7 +87,7 @@ $user = getUser();
                 <canvas id="trendChart" height="110"></canvas>
             </div>
             <div class="hz-card">
-                <div class="hz-card__header"><h2 style="font-size:1.1rem;">⚠ Lage voorraad</h2></div>
+                <div class="hz-card__header"><h2 style="font-size:1.1rem;"><?= hz_icon('alert-triangle') ?> Lage voorraad</h2></div>
                 <ul id="lowStockList" style="list-style:none; display:flex; flex-direction:column; gap:.5rem;">
                     <li class="hz-skeleton" style="height:20px;"></li>
                 </ul>
@@ -95,7 +95,7 @@ $user = getUser();
         </div>
 
         <div class="section">
-            <h2>🏆 Best verkopende items (laatste 30 dagen)</h2>
+            <h2><?= hz_icon('award') ?> Best verkopende items (laatste 30 dagen)</h2>
             <div class="table-container">
                 <table class="hz-table">
                     <thead><tr><th>Asset</th><th>Code</th><th>Aantal uitgiftes</th></tr></thead>

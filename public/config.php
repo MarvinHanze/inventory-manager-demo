@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/assets/icons.php';
 // Sessies goed beveiligen: httponly + samesite altijd, secure wanneer via HTTPS/proxy bediend.
 // (Zie ook login.php dat dezelfde instellingen zet vóór zijn eigen session_start().)
 ini_set('session.cookie_httponly', '1');
