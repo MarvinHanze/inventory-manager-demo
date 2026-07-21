@@ -13,6 +13,8 @@ switch ($action) {
             exit;
         }
         
+        verifyCSRF();
+        
         $email = $_POST['email'] ?? '';
         $password = $_POST['password'] ?? '';
         
@@ -48,6 +50,12 @@ switch ($action) {
         break;
         
     case 'logout':
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'Method not allowed']);
+            exit;
+        }
+        verifyCSRF();
         session_destroy();
         echo json_encode(['success' => true]);
         break;
@@ -91,6 +99,8 @@ switch ($action) {
             exit;
         }
         
+        verifyCSRF();
+        
         $asset_code = $_POST['scan_input'] ?? $_POST['asset_code'] ?? '';
         $employee_id = $_POST['employee_id'] ?? 0;
         $notes = $_POST['notes'] ?? '';
@@ -131,6 +141,8 @@ switch ($action) {
             echo json_encode(['error' => 'Method not allowed']);
             exit;
         }
+        
+        verifyCSRF();
         
         $asset_code = $_POST['scan_input'] ?? $_POST['asset_code'] ?? '';
         
@@ -174,6 +186,7 @@ switch ($action) {
             ");
             echo json_encode($stmt->fetchAll());
         } elseif ($method === 'POST') {
+            verifyCSRF();
             $asset_code = $_POST['asset_code'] ?? '';
             $name = $_POST['name'] ?? '';
             $category = $_POST['category'] ?? '';
@@ -192,6 +205,7 @@ switch ($action) {
             $stmt = $pdo->query("SELECT * FROM employees ORDER BY name");
             echo json_encode($stmt->fetchAll());
         } elseif ($method === 'POST') {
+            verifyCSRF();
             $name = $_POST['name'] ?? '';
             $email = $_POST['email'] ?? '';
             $department = $_POST['department'] ?? '';
@@ -247,6 +261,12 @@ switch ($action) {
         
     case 'seed':
         requireLogin();
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'Method not allowed']);
+            exit;
+        }
+        verifyCSRF();
         if ($_SESSION['user_role'] !== 'admin') {
             http_response_code(403);
             echo json_encode(['error' => 'Admin only']);

@@ -4,6 +4,12 @@ if (isset($_SESSION['user_id'])) {
     header('Location: /inventory-manager/index.php');
     exit;
 }
+function generateCSRFToken() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="nl">
@@ -40,6 +46,8 @@ if (isset($_SESSION['user_id'])) {
         </div>
     </div>
     <script>
+        const CSRF_TOKEN = '<?= generateCSRFToken() ?>';
+        
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const errorEl = document.getElementById('error');
@@ -47,6 +55,7 @@ if (isset($_SESSION['user_id'])) {
 
             const formData = new FormData();
             formData.append('action', 'login');
+            formData.append('csrf_token', CSRF_TOKEN);
             formData.append('email', document.getElementById('loginEmail').value);
             formData.append('password', document.getElementById('loginPass').value);
 

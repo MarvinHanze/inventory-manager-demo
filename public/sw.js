@@ -22,3 +22,4 @@ self.addEventListener('fetch', (event) => {
             })
     );
 });
+// ponytail: cache-first for all requests including API calls — acceptable for demo, skip stale-while-revalidate

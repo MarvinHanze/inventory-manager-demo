@@ -25,7 +25,10 @@ $user = getUser();
         </div>
         <div class="nav-user">
             <span><?= htmlspecialchars($user['name']) ?></span>
-            <a href="api.php?action=logout" class="btn btn-sm">Uitloggen</a>
+            <form method="post" action="api.php?action=logout" style="display:inline">
+                <?= csrfField() ?>
+                <button type="submit" class="btn btn-sm">Uitloggen</button>
+            </form>
         </div>
     </nav>
     
@@ -67,6 +70,8 @@ $user = getUser();
     </main>
     
     <script>
+        const CSRF_TOKEN = '<?= generateCSRFToken() ?>';
+        
         // Load active checkouts
         async function loadActive() {
             const response = await fetch('api.php?action=assets');
@@ -97,6 +102,7 @@ $user = getUser();
             resultEl.style.display = 'none';
             
             const formData = new FormData(e.target);
+            formData.append('csrf_token', CSRF_TOKEN);
             
             try {
                 const response = await fetch('api.php?action=checkin', {

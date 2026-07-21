@@ -25,7 +25,10 @@ $user = getUser();
         </div>
         <div class="nav-user">
             <span><?= htmlspecialchars($user['name']) ?></span>
-            <a href="api.php?action=logout" class="btn btn-sm">Uitloggen</a>
+            <form method="post" action="api.php?action=logout" style="display:inline">
+                <?= csrfField() ?>
+                <button type="submit" class="btn btn-sm">Uitloggen</button>
+            </form>
         </div>
     </nav>
     

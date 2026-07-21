@@ -29,7 +29,10 @@ if ($user['role'] !== 'admin') {
         </div>
         <div class="nav-user">
             <span><?= htmlspecialchars($user['name']) ?></span>
-            <a href="api.php?action=logout" class="btn btn-sm">Uitloggen</a>
+            <form method="post" action="api.php?action=logout" style="display:inline">
+                <?= csrfField() ?>
+                <button type="submit" class="btn btn-sm">Uitloggen</button>
+            </form>
         </div>
     </nav>
     
@@ -143,6 +146,8 @@ if ($user['role'] !== 'admin') {
     </main>
     
     <script>
+        const CSRF_TOKEN = '<?= generateCSRFToken() ?>';
+        
         // Tab switching
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -206,6 +211,7 @@ if ($user['role'] !== 'admin') {
         document.getElementById('assetForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
+            formData.append('csrf_token', CSRF_TOKEN);
             
             await fetch('api.php?action=assets', {
                 method: 'POST',
@@ -258,6 +264,7 @@ if ($user['role'] !== 'admin') {
         document.getElementById('employeeForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
+            formData.append('csrf_token', CSRF_TOKEN);
             
             await fetch('api.php?action=employees', {
                 method: 'POST',
