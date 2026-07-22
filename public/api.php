@@ -1,4 +1,5 @@
 <?php
+define('IS_API', true);
 header('Content-Type: application/json');
 require_once 'config.php';
 
@@ -35,22 +36,35 @@ switch ($action) {
             exit;
         }
 
+        // Brute-force-bescherming: na 8 mislukte pogingen (per e-mailadres of IP) binnen 15 minuten
+        // wordt inloggen tijdelijk geblokkeerd, ook als het wachtwoord deze keer wel klopt.
+        if (isLoginRateLimited($pdo, $email)) {
+            http_response_code(429);
+            echo json_encode(['error' => 'Te veel mislukte inlogpogingen. Probeer het over 15 minuten opnieuw.']);
+            exit;
+        }
+
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
-        if (!$user || !password_verify($password, $user['password'])) {
+        $ok = $user && password_verify($password, $user['password']);
+        recordLoginAttempt($pdo, $email, $ok);
+
+        if (!$ok) {
             http_response_code(401);
             echo json_encode(['error' => 'Invalid credentials']);
             exit;
         }
 
+        // Sessie-ID verversen bij privilege-verandering (login) voorkomt session fixation.
+        session_regenerate_id(true);
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['user_role'] = $user['role'];
 
         // Log login
         $stmt = $pdo->prepare("INSERT INTO login_log (user_id, ip_address) VALUES (?, ?)");
-        $stmt->execute([$user['id'], $_SERVER['REMOTE_ADDR']]);
+        $stmt->execute([$user['id'], clientIp()]);
         logAudit($pdo, 'login', 'user', $user['id'], 'Ingelogd');
 
         echo json_encode(['success' => true, 'user' => [
@@ -68,6 +82,11 @@ switch ($action) {
             exit;
         }
         verifyCSRF();
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+        }
         session_destroy();
         echo json_encode(['success' => true]);
         break;
@@ -320,17 +339,39 @@ switch ($action) {
 
             requireFields(['asset_code', 'name'], ['asset_code' => $asset_code, 'name' => $name]);
 
-            if ($id) {
-                $stmt = $pdo->prepare("UPDATE assets SET asset_code = ?, name = ?, category = ? WHERE id = ?");
-                $stmt->execute([$asset_code, $name, $category, $id]);
-                logAudit($pdo, 'update', 'asset', $id, "Asset bijgewerkt: $asset_code ($name)");
-                echo json_encode(['success' => true, 'id' => $id]);
-            } else {
-                $stmt = $pdo->prepare("INSERT INTO assets (asset_code, name, category) VALUES (?, ?, ?)");
-                $stmt->execute([$asset_code, $name, $category]);
-                $newId = $pdo->lastInsertId();
-                logAudit($pdo, 'create', 'asset', $newId, "Asset aangemaakt: $asset_code ($name)");
-                echo json_encode(['success' => true, 'id' => $newId]);
+            try {
+                if ($id) {
+                    $stmt = $pdo->prepare("UPDATE assets SET asset_code = ?, name = ?, category = ? WHERE id = ?");
+                    $stmt->execute([$asset_code, $name, $category, $id]);
+                    if ($stmt->rowCount() === 0) {
+                        // Kan ook "geen wijziging" betekenen (zelfde waarden opnieuw opgeslagen); check
+                        // daarom expliciet of het asset bestaat i.p.v. altijd 404 te geven.
+                        $exists = $pdo->prepare("SELECT 1 FROM assets WHERE id = ?");
+                        $exists->execute([$id]);
+                        if (!$exists->fetchColumn()) {
+                            http_response_code(404);
+                            echo json_encode(['error' => 'Asset niet gevonden']);
+                            exit;
+                        }
+                    }
+                    logAudit($pdo, 'update', 'asset', $id, "Asset bijgewerkt: $asset_code ($name)");
+                    echo json_encode(['success' => true, 'id' => $id]);
+                } else {
+                    $stmt = $pdo->prepare("INSERT INTO assets (asset_code, name, category) VALUES (?, ?, ?)");
+                    $stmt->execute([$asset_code, $name, $category]);
+                    $newId = $pdo->lastInsertId();
+                    logAudit($pdo, 'create', 'asset', $newId, "Asset aangemaakt: $asset_code ($name)");
+                    echo json_encode(['success' => true, 'id' => $newId]);
+                }
+            } catch (PDOException $e) {
+                // Meest voorkomende oorzaak: dubbele asset_code (UNIQUE constraint) — nette 409
+                // i.p.v. de generieke 500-handler die de ruwe database-foutmelding zou onderdrukken.
+                if ($e->getCode() === '23000') {
+                    http_response_code(409);
+                    echo json_encode(['error' => "Asset code '$asset_code' bestaat al"]);
+                    exit;
+                }
+                throw $e;
             }
         }
         break;
@@ -351,6 +392,14 @@ switch ($action) {
         }
         $stmt = $pdo->prepare("UPDATE assets SET status = 'retired', assigned_to = NULL WHERE id = ?");
         $stmt->execute([$id]);
+        // execute() geeft alleen aan of de query zonder fouten liep, niet of er ook echt een rij
+        // geraakt is — rowCount() gebruiken zodat een niet-bestaand asset-id netjes een 404 geeft
+        // in plaats van een misleidende "success" (en een audit-log-regel voor iets dat niet bestaat).
+        if ($stmt->rowCount() === 0) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Asset niet gevonden']);
+            exit;
+        }
         logAudit($pdo, 'retire', 'asset', $id, 'Asset buiten gebruik gesteld');
         echo json_encode(['success' => true]);
         break;
@@ -378,8 +427,12 @@ switch ($action) {
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $pdo->prepare("UPDATE assets SET status = 'maintenance' WHERE id IN ($placeholders)");
         $stmt->execute($ids);
-        logAudit($pdo, 'bulk_maintenance', 'asset', null, count($ids) . ' asset(s) op onderhoud gezet: ' . implode(',', $ids));
-        echo json_encode(['success' => true, 'count' => count($ids)]);
+        // count($ids) is het aantal aangeleverde (geldige) id's, niet het aantal rijen dat
+        // daadwerkelijk geraakt is — bijv. bij een niet-bestaand id zou dit ten onrechte een hoger
+        // aantal claimen dan er echt gewijzigd is. rowCount() geeft het werkelijke aantal.
+        $affected = $stmt->rowCount();
+        logAudit($pdo, 'bulk_maintenance', 'asset', null, "$affected asset(s) op onderhoud gezet: " . implode(',', $ids));
+        echo json_encode(['success' => true, 'count' => $affected]);
         break;
 
     case 'employees':
@@ -389,6 +442,12 @@ switch ($action) {
             $stmt = $pdo->query("SELECT * FROM employees ORDER BY name");
             echo json_encode($stmt->fetchAll());
         } elseif ($method === 'POST') {
+            // Was eerder alleen achter requireLogin() gaan hangen: elke ingelogde rol (ook 'user')
+            // kon zo medewerkers aanmaken, terwijl elke andere schrijfactie in deze API (assets,
+            // magazijnen, voorraad, batches, orders) al wél requireStockManager() afdwingt. Dat was
+            // een inconsistente/ontbrekende autorisatiecheck (broken function level access control)
+            // — hier gelijkgetrokken met de rest van de API.
+            requireStockManager();
             verifyCSRF();
             $name = trim((string)($_POST['name'] ?? ''));
             $email = trim((string)($_POST['email'] ?? ''));
@@ -429,11 +488,20 @@ switch ($action) {
             $location = trim((string)($_POST['location'] ?? ''));
             requireFields(['code', 'name'], ['code' => $code, 'name' => $name]);
 
-            $stmt = $pdo->prepare("INSERT INTO inv_warehouses (code, name, location) VALUES (?, ?, ?)");
-            $stmt->execute([$code, $name, $location]);
-            $newId = $pdo->lastInsertId();
-            logAudit($pdo, 'create', 'warehouse', $newId, "Magazijn aangemaakt: $code ($name)");
-            echo json_encode(['success' => true, 'id' => $newId]);
+            try {
+                $stmt = $pdo->prepare("INSERT INTO inv_warehouses (code, name, location) VALUES (?, ?, ?)");
+                $stmt->execute([$code, $name, $location]);
+                $newId = $pdo->lastInsertId();
+                logAudit($pdo, 'create', 'warehouse', $newId, "Magazijn aangemaakt: $code ($name)");
+                echo json_encode(['success' => true, 'id' => $newId]);
+            } catch (PDOException $e) {
+                if ($e->getCode() === '23000') {
+                    http_response_code(409);
+                    echo json_encode(['error' => "Magazijncode '$code' bestaat al"]);
+                    exit;
+                }
+                throw $e;
+            }
         }
         break;
 
@@ -566,6 +634,11 @@ switch ($action) {
         }
         $stmt = $pdo->prepare("UPDATE inv_stock_allocations SET released_at = NOW() WHERE id = ? AND released_at IS NULL");
         $stmt->execute([$id]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Allocatie niet gevonden of al vrijgegeven']);
+            exit;
+        }
         logAudit($pdo, 'release_allocation', 'stock_allocation', $id, 'Allocatie vrijgegeven');
         echo json_encode(['success' => true]);
         break;
@@ -910,8 +983,22 @@ switch ($action) {
             LEFT JOIN inv_stock s ON s.asset_id = a.id
             GROUP BY a.id ORDER BY a.name
         ");
+        // CSV-injectie voorkomen: als een tekstveld begint met =, +, -, @, tab of CR, interpreteert
+        // Excel/Sheets dat bij het openen als formule. Zo'n cel krijgt een voorloop-apostrof zodat
+        // het als platte tekst blijft staan (waarde zelf ongewijzigd voor eigen gebruik van de data).
+        $escapeFormula = function ($v) {
+            $v = (string)$v;
+            return preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v;
+        };
         foreach ($stmt->fetchAll() as $row) {
-            fputcsv($out, $row);
+            fputcsv($out, [
+                $escapeFormula($row['asset_code']),
+                $escapeFormula($row['name']),
+                $escapeFormula($row['category']),
+                $row['status'],
+                $row['total_quantity'],
+                $row['total_value'],
+            ]);
         }
         fclose($out);
         exit;
@@ -928,6 +1015,28 @@ switch ($action) {
         if (empty($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
             http_response_code(400);
             echo json_encode(['error' => 'Geen (geldig) CSV-bestand ontvangen']);
+            exit;
+        }
+
+        // Bestandsvalidatie: nooit de door de client aangeleverde bestandsnaam gebruiken voor
+        // opslag (voorkomt path traversal) — we lezen alleen uit is_uploaded_file()-gevalideerde
+        // tmp_name. Extra: expliciete grootte- en extensiecheck i.p.v. blind te vertrouwen op
+        // php.ini-defaults, en is_uploaded_file() ter bescherming tegen een geknutseld $_FILES-array.
+        if (!is_uploaded_file($_FILES['csv_file']['tmp_name'])) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Ongeldige upload']);
+            exit;
+        }
+        $maxBytes = 5 * 1024 * 1024;
+        if ($_FILES['csv_file']['size'] > $maxBytes) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Bestand is te groot (max 5MB)']);
+            exit;
+        }
+        $originalName = (string)($_FILES['csv_file']['name'] ?? '');
+        if (strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) !== 'csv') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Alleen .csv-bestanden zijn toegestaan']);
             exit;
         }
 

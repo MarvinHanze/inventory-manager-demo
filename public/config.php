@@ -1,5 +1,48 @@
 <?php
 require_once __DIR__ . '/assets/icons.php';
+
+// Fouten NOOIT rechtstreeks naar de browser (paden/queries/stack traces lekken anders naar de
+// gebruiker) — wel altijd loggen server-side. Dit overschrijft eventuele php.ini-defaults van de
+// image (het officiële php:8.2-apache image heeft standaard geen actieve php.ini, waardoor
+// display_errors ongemerkt "On" kan staan).
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+ini_set('log_errors', '1');
+error_reporting(E_ALL);
+
+// Centrale, generieke afhandeling van alles wat verder ontsnapt (onverwachte PDOException,
+// TypeError, etc.): loggen server-side, gebruiker krijgt alleen een generieke melding terug in
+// een vorm die past bij het aanroeptype (JSON voor api.php, simpele HTML voor de paginascripts).
+function hzSafeErrorResponse() {
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
+    $isJson = defined('IS_API');
+    foreach (headers_list() as $h) {
+        if (stripos($h, 'Content-Type:') === 0 && stripos($h, 'application/json') !== false) {
+            $isJson = true;
+        }
+    }
+    if ($isJson) {
+        echo json_encode(['error' => 'Er is een onverwachte fout opgetreden. Probeer het later opnieuw.']);
+    } else {
+        echo '<p style="font-family:sans-serif;padding:2rem;">Er is een onverwachte fout opgetreden. Probeer het later opnieuw.</p>';
+    }
+}
+set_exception_handler(function (Throwable $e) {
+    error_log('[inventory-manager] Uncaught ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    hzSafeErrorResponse();
+});
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        error_log('[inventory-manager] Fatal: ' . $err['message'] . ' in ' . $err['file'] . ':' . $err['line']);
+        if (!headers_sent()) {
+            hzSafeErrorResponse();
+        }
+    }
+});
+
 // Sessies goed beveiligen: httponly + samesite altijd, secure wanneer via HTTPS/proxy bediend.
 // (Zie ook login.php dat dezelfde instellingen zet vóór zijn eigen session_start().)
 ini_set('session.cookie_httponly', '1');
@@ -25,7 +68,9 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
+    error_log('[inventory-manager] Database connection failed: ' . $e->getMessage());
+    http_response_code(500);
+    die('Database connection failed. Probeer het later opnieuw.');
 }
 
 initDatabase($pdo);
@@ -37,6 +82,9 @@ function initDatabase($pdo) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS asset_transactions (id INT AUTO_INCREMENT PRIMARY KEY, asset_id INT NOT NULL, employee_id INT NOT NULL, type ENUM('checkout','checkin') NOT NULL, checkout_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, checkin_date TIMESTAMP NULL, notes TEXT)");
     $pdo->exec("CREATE TABLE IF NOT EXISTS login_log (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ip_address VARCHAR(45))");
     $pdo->exec("CREATE TABLE IF NOT EXISTS demo_settings (id INT PRIMARY KEY DEFAULT 1, last_reset DATETIME NOT NULL)");
+    // Brute-force-bescherming voor de login: houdt zowel mislukte als geslaagde pogingen bij per
+    // e-mailadres + IP, zodat we recente mislukte pogingen kunnen tellen (zie attemptLogin()).
+    $pdo->exec("CREATE TABLE IF NOT EXISTS inv_login_attempts (id INT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255) NOT NULL, ip_address VARCHAR(45) NOT NULL, success TINYINT(1) NOT NULL DEFAULT 0, attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX idx_email_time (email, attempted_at), INDEX idx_ip_time (ip_address, attempted_at))");
 
     // Rollen uitbreiden met 'manager' als middenweg tussen admin en user (idempotent: alleen ALTER
     // uitvoeren als de enum 'manager' nog niet bevat, zodat dit niet elke request een table rewrite triggert).
@@ -228,11 +276,38 @@ function isLoggedIn() {
     return isset($_SESSION['user_id']);
 }
 
+// api.php definieert IS_API vóór het inladen van dit bestand, zodat een niet-ingelogd verzoek aan
+// de JSON-API een nette 401 terugkrijgt in plaats van een redirect-Location-header (die een fetch()
+// gewoon transparant zou volgen en die niet bij een JSON-API past). De losse PHP-pagina's
+// (index.php, admin.php, ...) definiëren IS_API niet en behouden de redirect-naar-login.
 function requireLogin() {
     if (!isLoggedIn()) {
+        if (defined('IS_API') && IS_API) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Niet ingelogd']);
+            exit;
+        }
         header('Location: ' . BASE . '/login.php');
         exit;
     }
+}
+
+function clientIp() {
+    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+}
+
+// Brute-force-bescherming: max. 8 mislukte pogingen per e-mailadres/IP binnen 15 minuten.
+function isLoginRateLimited($pdo, $email) {
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM inv_login_attempts WHERE (email = ? OR ip_address = ?) AND success = 0 AND attempted_at > NOW() - INTERVAL 15 MINUTE"
+    );
+    $stmt->execute([$email, clientIp()]);
+    return ((int)$stmt->fetchColumn()) >= 8;
+}
+
+function recordLoginAttempt($pdo, $email, $success) {
+    $stmt = $pdo->prepare("INSERT INTO inv_login_attempts (email, ip_address, success) VALUES (?, ?, ?)");
+    $stmt->execute([$email, clientIp(), $success ? 1 : 0]);
 }
 
 function getUser() {

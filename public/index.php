@@ -225,6 +225,17 @@ $user = getUser();
         // Vereenvoudiging t.o.v. "realtime updates via websockets": we pollen elke 15 seconden.
         // Een echte implementatie zou een websocket- of SSE-verbinding gebruiken voor pushupdates.
         setInterval(loadDashboard, 15000);
+
+        // manifest.json verwijst hierboven al naar deze service worker, maar zonder registratie
+        // deed die verder niets (geen offline-ondersteuning, geen installeerbare PWA). 'sw.js' is
+        // relatief aan <base href="/inventory-manager/">, dus de scope komt vanzelf goed uit.
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch((err) => {
+                    console.warn('Service worker registratie mislukt:', err);
+                });
+            });
+        }
     </script>
 </body>
 </html>
