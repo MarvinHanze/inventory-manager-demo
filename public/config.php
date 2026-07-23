@@ -293,6 +293,22 @@ function requireLogin() {
 }
 
 function clientIp() {
+    // Deze app draait achter Traefik (Coolify's reverse proxy) — $_SERVER['REMOTE_ADDR'] is dan altijd
+    // het interne adres van de proxy-container, niet het echte IP van de bezoeker. Voor de login-
+    // rate-limiter hieronder betekent dat: ALLE externe bezoekers vallen in dezelfde IP-emmer, waardoor
+    // één luidruchtige gebruiker (of geautomatiseerde scanner) per ongeluk iedereen kan blokkeren.
+    // Traefik draait hier zonder forwardedHeaders.insecure/trustedIPs, dus het vertrouwt zelf ook geen
+    // door de client aangeleverde X-Forwarded-For-header en zet 'm altijd zelf op het IP van de
+    // daadwerkelijke inkomende verbinding — die waarde is dus hier veilig te vertrouwen (niet
+    // client-spoofbaar). We pakken defensief het eerste adres uit een eventuele komma-gescheiden lijst
+    // en vallen terug op REMOTE_ADDR als de header ontbreekt of geen geldig IP bevat.
+    $xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+    if ($xff !== '') {
+        $candidate = trim(explode(',', $xff)[0]);
+        if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+            return $candidate;
+        }
+    }
     return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
