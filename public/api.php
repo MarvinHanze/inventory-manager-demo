@@ -199,9 +199,18 @@ switch ($action) {
             exit;
         }
 
-        // Update asset
-        $stmt = $pdo->prepare("UPDATE assets SET status = 'checked_out', assigned_to = ?, last_checkout = NOW() WHERE id = ?");
+        // Atomische conditionele UPDATE i.p.v. "check dan schrijf": de status-voorwaarde staat in de
+        // WHERE-clause, zodat twee gelijktijdige scans van dezelfde asset-code (bijv. twee medewerkers
+        // die tegelijk hetzelfde item scannen) niet allebei de eerdere SELECT-check kunnen doorstaan en
+        // allebei een checkout wegschrijven. rowCount() vertelt ons of déze request de asset echt heeft
+        // "gewonnen"; zo niet, dan was een ander verzoek net iets eerder.
+        $stmt = $pdo->prepare("UPDATE assets SET status = 'checked_out', assigned_to = ?, last_checkout = NOW() WHERE id = ? AND status = 'available'");
         $stmt->execute([$employee_id, $asset['id']]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Asset is zojuist al uitgegeven door een ander verzoek']);
+            exit;
+        }
 
         // Create transaction
         $stmt = $pdo->prepare("INSERT INTO asset_transactions (asset_id, employee_id, type, notes) VALUES (?, ?, 'checkout', ?)");
@@ -248,9 +257,15 @@ switch ($action) {
             exit;
         }
 
-        // Update asset
-        $stmt = $pdo->prepare("UPDATE assets SET status = 'available', assigned_to = NULL, last_checkin = NOW() WHERE id = ?");
+        // Zelfde reden als bij checkout hierboven: atomische conditionele UPDATE i.p.v. check-dan-schrijf,
+        // zodat twee gelijktijdige inname-verzoeken voor dezelfde asset niet allebei doorgaan.
+        $stmt = $pdo->prepare("UPDATE assets SET status = 'available', assigned_to = NULL, last_checkin = NOW() WHERE id = ? AND status = 'checked_out'");
         $stmt->execute([$asset['id']]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Asset is zojuist al ingenomen door een ander verzoek']);
+            exit;
+        }
 
         // Update transaction
         $stmt = $pdo->prepare("UPDATE asset_transactions SET checkin_date = NOW() WHERE asset_id = ? AND type = 'checkout' AND checkin_date IS NULL");
@@ -675,10 +690,24 @@ switch ($action) {
                 exit;
             }
 
-            $poNumber = 'PO-' . date('Y') . '-' . str_pad((string)($pdo->query("SELECT COUNT(*) FROM inv_purchase_orders")->fetchColumn() + 1), 3, '0', STR_PAD_LEFT);
-            $stmt = $pdo->prepare("INSERT INTO inv_purchase_orders (po_number, supplier_name, status, recurring, expected_date, created_by) VALUES (?, ?, 'pending', ?, ?, ?)");
-            $stmt->execute([$poNumber, $supplier, $recurring, $expectedDate ?: null, $_SESSION['user_id']]);
-            $poId = $pdo->lastInsertId();
+            // po_number wordt afgeleid van COUNT(*), zonder locking — bij twee vrijwel gelijktijdige
+            // inkooporders zou dat tot dezelfde po_number (en dus een UNIQUE-constraint-fout) kunnen
+            // leiden. Kleine retry-lus i.p.v. de fout gewoon te laten crashen naar de generieke
+            // 500-handler: bij een botsing wordt het volgnummer opnieuw opgevraagd en nogmaals geprobeerd.
+            $poId = null;
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                $poNumber = 'PO-' . date('Y') . '-' . str_pad((string)($pdo->query("SELECT COUNT(*) FROM inv_purchase_orders")->fetchColumn() + 1), 3, '0', STR_PAD_LEFT);
+                try {
+                    $stmt = $pdo->prepare("INSERT INTO inv_purchase_orders (po_number, supplier_name, status, recurring, expected_date, created_by) VALUES (?, ?, 'pending', ?, ?, ?)");
+                    $stmt->execute([$poNumber, $supplier, $recurring, $expectedDate ?: null, $_SESSION['user_id']]);
+                    $poId = $pdo->lastInsertId();
+                    break;
+                } catch (PDOException $e) {
+                    if ($e->getCode() !== '23000' || $attempt === 4) {
+                        throw $e;
+                    }
+                }
+            }
 
             $itemStmt = $pdo->prepare("INSERT INTO inv_purchase_order_items (po_id, asset_id, quantity, unit_price) VALUES (?, ?, ?, ?)");
             foreach ($assetIds as $i => $aid) {
@@ -724,6 +753,18 @@ switch ($action) {
             exit;
         }
 
+        // Atomisch claimen vóórdat de voorraad wordt bijgeboekt: de statuswijziging gebeurt hier eerst,
+        // met de oude status in de WHERE-clause, zodat twee gelijktijdige "Ontvangen"-klikken op dezelfde
+        // inkooporder niet allebei de SELECT-check hierboven doorstaan en de voorraad dubbel bijboeken.
+        // Alleen het verzoek dat de rij daadwerkelijk wijzigt (rowCount 1) mag de stock-upsert uitvoeren.
+        $claim = $pdo->prepare("UPDATE inv_purchase_orders SET status = 'received' WHERE id = ? AND status != 'received'");
+        $claim->execute([$poId]);
+        if ($claim->rowCount() === 0) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Inkooporder is zojuist al ontvangen door een ander verzoek']);
+            exit;
+        }
+
         $itemStmt = $pdo->prepare("SELECT * FROM inv_purchase_order_items WHERE po_id = ?");
         $itemStmt->execute([$poId]);
         $items = $itemStmt->fetchAll();
@@ -738,9 +779,6 @@ switch ($action) {
             $upsert->execute([$item['asset_id'], $warehouseId, $item['quantity'], $item['unit_price']]);
             $received += (int)$item['quantity'];
         }
-
-        $stmt = $pdo->prepare("UPDATE inv_purchase_orders SET status = 'received' WHERE id = ?");
-        $stmt->execute([$poId]);
 
         logAudit($pdo, 'receive', 'purchase_order', $poId, "Levering ontvangen voor {$po['po_number']}: $received stuks in magazijn #$warehouseId");
         echo json_encode(['success' => true, 'message' => "Levering ontvangen: $received stuks bijgeboekt"]);
@@ -776,10 +814,23 @@ switch ($action) {
                 exit;
             }
 
-            $soNumber = 'SO-' . date('Y') . '-' . str_pad((string)($pdo->query("SELECT COUNT(*) FROM inv_sales_orders")->fetchColumn() + 1), 3, '0', STR_PAD_LEFT);
-            $stmt = $pdo->prepare("INSERT INTO inv_sales_orders (so_number, customer_name, status, created_by) VALUES (?, ?, 'open', ?)");
-            $stmt->execute([$soNumber, $customer, $_SESSION['user_id']]);
-            $soId = $pdo->lastInsertId();
+            // Zelfde reden als bij purchase_orders hierboven: COUNT(*)-gebaseerd volgnummer zonder
+            // locking kan bij gelijktijdige aanmaak botsen op de UNIQUE-constraint — kleine retry-lus
+            // i.p.v. een onnodige 500.
+            $soId = null;
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                $soNumber = 'SO-' . date('Y') . '-' . str_pad((string)($pdo->query("SELECT COUNT(*) FROM inv_sales_orders")->fetchColumn() + 1), 3, '0', STR_PAD_LEFT);
+                try {
+                    $stmt = $pdo->prepare("INSERT INTO inv_sales_orders (so_number, customer_name, status, created_by) VALUES (?, ?, 'open', ?)");
+                    $stmt->execute([$soNumber, $customer, $_SESSION['user_id']]);
+                    $soId = $pdo->lastInsertId();
+                    break;
+                } catch (PDOException $e) {
+                    if ($e->getCode() !== '23000' || $attempt === 4) {
+                        throw $e;
+                    }
+                }
+            }
 
             $itemStmt = $pdo->prepare("INSERT INTO inv_sales_order_items (so_id, asset_id, quantity) VALUES (?, ?, ?)");
             foreach ($assetIds as $i => $aid) {
@@ -823,6 +874,17 @@ switch ($action) {
             exit;
         }
 
+        // Zelfde reden als bij receive_purchase_order hierboven: eerst atomisch claimen (oude status in
+        // de WHERE-clause) vóórdat de voorraad wordt afgeboekt, zodat twee gelijktijdige "Uitleveren"-
+        // klikken op dezelfde verkooporder niet allebei de voorraad afboeken.
+        $claim = $pdo->prepare("UPDATE inv_sales_orders SET status = 'fulfilled' WHERE id = ? AND status = 'open'");
+        $claim->execute([$soId]);
+        if ($claim->rowCount() === 0) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Verkooporder is zojuist al uitgeleverd door een ander verzoek']);
+            exit;
+        }
+
         $itemStmt = $pdo->prepare("SELECT * FROM inv_sales_order_items WHERE so_id = ?");
         $itemStmt->execute([$soId]);
         $items = $itemStmt->fetchAll();
@@ -834,9 +896,6 @@ switch ($action) {
         foreach ($items as $item) {
             $decStmt->execute([$item['quantity'], $item['asset_id']]);
         }
-
-        $stmt = $pdo->prepare("UPDATE inv_sales_orders SET status = 'fulfilled' WHERE id = ?");
-        $stmt->execute([$soId]);
 
         logAudit($pdo, 'fulfill', 'sales_order', $soId, "Verkooporder {$so['so_number']} uitgeleverd (voorraad afgeboekt)");
         echo json_encode(['success' => true, 'message' => 'Verkooporder uitgeleverd']);
@@ -917,9 +976,15 @@ switch ($action) {
             $provider = trim((string)($_POST['provider'] ?? 'Exact Online (demo)'));
             $apiKey = trim((string)($_POST['api_key'] ?? ''));
 
+            // De UI-placeholder belooft expliciet "(ongewijzigd laten om te behouden)" als het veld
+            // leeg blijft (de sleutel wordt immers ook nooit teruggetoond, zie de GET hierboven). Eerder
+            // overschreef een leeg ingezonden veld de bestaande sleutel gewoon met '' — dat brak die
+            // belofte en verwijderde stilzwijgend een al ingestelde (nep-)API-sleutel. IF() in de UPDATE
+            // houdt de bestaande waarde aan wanneer er niets nieuws is ingevuld.
             $stmt = $pdo->prepare("
                 INSERT INTO inv_erp_settings (id, provider, api_key) VALUES (1, ?, ?)
-                ON DUPLICATE KEY UPDATE provider = VALUES(provider), api_key = VALUES(api_key)
+                ON DUPLICATE KEY UPDATE provider = VALUES(provider),
+                    api_key = IF(VALUES(api_key) = '', api_key, VALUES(api_key))
             ");
             $stmt->execute([$provider, $apiKey]);
             logAudit($pdo, 'update', 'erp_settings', 1, "ERP-instellingen bijgewerkt (provider: $provider) [MOCK, geen echte koppeling]");
