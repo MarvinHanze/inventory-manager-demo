@@ -1,10 +1,11 @@
-const CACHE_NAME = 'inventory-manager-v2';
-// Paden zijn relatief aan de scope van deze service worker (/inventory-manager/, zie de
-// registratie in index.php) — de eerdere absolute paden ('/', '/login.php', ...) wezen buiten die
-// scope naar de domeinroot en werden dus nooit daadwerkelijk gecached.
+const CACHE_NAME = 'inventory-manager-v3';
+// BUGFIX (v2 -> v3): index.php/login.php stonden hier eerder in de precache-lijst. Dat zijn
+// dynamische, sessie-afhankelijke PHP-pagina's (login.php bevat een CSRF-token gebonden aan de
+// PHP-sessie van het moment van cachen) — cache-first serveren van login.php betekende dat
+// terugkerende bezoekers een verouderd, niet meer geldig CSRF-token in het loginformulier konden
+// krijgen, waardoor elke inlogpoging faalde met een CSRF-mismatch en de app leek "onbereikbaar".
+// Alleen nog écht statische assets precachen; alle .php-pagina's altijd vers van het netwerk.
 const urlsToCache = [
-    'index.php',
-    'login.php',
     'assets/css/style.css',
     'assets/css/components.css',
     'manifest.json'
@@ -29,10 +30,16 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Cache-first is bewust eenvoudig gehouden voor deze demo (i.p.v. stale-while-revalidate). Let op:
-// dit geldt alleen voor de precachede lijst hierboven — api.php-verzoeken staan daar niet in en
-// worden dus altijd gewoon van het netwerk gehaald, nooit uit deze cache bediend.
+// Cache-first is bewust eenvoudig gehouden voor deze demo (i.p.v. stale-while-revalidate) — maar
+// nooit voor .php-requests: die zijn altijd dynamisch/sessie-afhankelijk (login-status,
+// CSRF-tokens, live voorraaddata) en mogen nooit uit de cache komen, ook niet als er ooit
+// per ongeluk iets van dat type in de cache terechtkomt.
 self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+    if (url.pathname.endsWith('.php')) {
+        event.respondWith(fetch(event.request));
+        return;
+    }
     event.respondWith(
         caches.match(event.request)
             .then((response) => {
